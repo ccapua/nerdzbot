@@ -2,6 +2,7 @@ from __future__ import unicode_literals
 from os import startfile
 from bs4 import BeautifulSoup
 import nacl
+import config
 import discord, os, random, requests, requests.auth, subprocess, time, youtube_dl
 
 # Get a discord client
@@ -116,4 +117,4 @@ async def on_message(msg):
     for x in client.voice_clients:
       await x.disconnect()
 
-client.run('NjEyMDk0NjYxNDQ3OTA5Mzc3.XVh1lw.sLs8yTagPMa5p7CIs338nOzHVW0')
+client.run(config.BOT_TOKEN)
