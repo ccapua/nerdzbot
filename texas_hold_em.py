@@ -135,7 +135,7 @@ class Dealer():
         if call == 0:
             check = "> n!holdem check\n"
         await self._channel.send(
-            f"It is your turn to play @{next_bet.user.display_name}", 
+            f"It is your turn, {next_bet.user.display_name}", 
             delete_after=60
         )
         await self._channel.send(
@@ -148,16 +148,7 @@ class Dealer():
             delete_after=60
         )
         await next_bet.user.send(
-            f"It is your turn to bet @{next_bet.user.display_name}"
-        )
-        await next_bet.user.send(
-            f"Minimum bet to stay: ${call} ({who_raised} raised)"
-            f"You have {next_bet.money}"
-            "Your options are:\n" +
-            "> n!holdem bet [*a number (no dollar sign)*]\n" + 
-            "> n!holdem call\n" +
-            f"{check}" +
-            "> n!holdem fold"
+            f"It is your turn, {next_bet.user.mention}"
         )
 
     async def send_betting_order(self, betting_order):
@@ -166,8 +157,13 @@ class Dealer():
             delete_after=45
         )
         for player in betting_order:
+            blind = ''
+            if player.is_small_blind:
+                blind = ' (small blind)'
+            elif player.is_big_blind:
+                blind = ' (big blind)'
             await self._channel.send(
-                f'{player.user.display_name}', 
+                f'{player.user.display_name}{blind}', 
                 delete_after=45
             )
 
@@ -186,8 +182,8 @@ class Player():
         self.user = user
         self.money = 0
         self.hand = []
-        self.small_blind = False 
-        self.big_blind = False
+        self.is_small_blind = False 
+        self.is_big_blind = False
 
 class Game():
 
@@ -228,15 +224,14 @@ class Game():
 
         random.shuffle(self._players)
         print('Players shuffled.')
-        self._players[0].small_blind = True
-        self._players[1].big_blind = True
+        self._players[0].is_small_blind = True
+        self._players[1].is_big_blind = True
         # generate a dealer
         print('Creating dealer.')
         self.dealer = Dealer(self._channel)
 
         # generate betting order
-        print('Generating betting order.')
-        self._generate_betting_order(next_round=True)
+        await self._generate_betting_order(next_round=True)
         # advance to dealing phase
         print('Starting game.')
         self.state = 'deal'
@@ -254,8 +249,8 @@ class Game():
                 self.state = 'river'
             elif self.state == 'river':
                 self.state = 'deal'
-                self.dealer.move_blinds(self._players)
-                self._generate_betting_order(next_round=True)    
+                await self._generate_betting_order(next_round=True)
+                self.dealer.move_blinds(self._players)   
 
             self.dealer.dealt_this_phase = False
             await self._continue_round()
@@ -265,32 +260,17 @@ class Game():
         if self.dealer.dealt_this_phase == False: 
             # players, state, round_number, community_cards = []
             await self.dealer.deal_this_phase(self._players, self.state, self._round_number, self._community_cards)
-
             await self._continue_round()
 
-        print(self._betting_order)
-        if self.state == 'deal':
-            if len(self._betting_order) == 0:
-                await _send_to_next_phase(self)
-            else:
-                await self.dealer.send_betting_alert(self._betting_order[0], self._call)          
-        if self.state == 'flop':
-            if len(self._betting_order) == 0:
-                await _send_to_next_phase(self)
-            else:
-                await self.dealer.send_betting_alert(self._betting_order[0], self._call)
-        elif self.state == 'turn':
-            if len(self._betting_order) == 0:
-               await _send_to_next_phase(self)
-            else:
-                await self.dealer.send_betting_alert(self._betting_order[0], self._call)
-        elif self.state == 'river':
-            if len(self._betting_order) == 0:
-                await _send_to_next_phase(self)
-            else:
-                self.dealer.send_betting_alert(self._betting_order[0], self._call)
+        print(len(self._betting_order))
+        if len(self._betting_order) == 0:
+            await _send_to_next_phase(self)
+        else:
+            await self.dealer.send_betting_alert(self._betting_order[0], self._call)          
 
     async def _generate_betting_order(self, next_round = False): # generates a betting order based on whether it's the next_round
+        print('Generating betting order.')
+        print(next_round)
         if next_round:
             # if it's the next round, figure out who is first in the blind rotation
             # and generate a betting order based off of table order (self._players)
@@ -298,22 +278,28 @@ class Game():
             small_index = 0
             big_index = 0
             # find the index of the small blind
-            for i in range(0, len(self._players)):
+            for i in range(0, len(self._players)-1):
+                print(len(self._players))
                 if self._players[i].is_small_blind:
                     small_index = i
+                    break
             # find the index of the big blind
-            if self._players[small_index] != self._players[-1]:
+            if small_index != (len(self._players) - 1):
                 big_index = small_index + 1
             # add the small blind to the list
+            print(small_index)
+            print(big_index)
             self._betting_order.append(self._players[small_index])
+            print(self._betting_order)
             # go around the table, adding each player until you get back to the small blind
             i = big_index
             while i != small_index:
                 self._betting_order.append(self._players[i])
-                if self._players[i] == self._players[-1]:
+                if i == (len(self._players) - 1):
                     i = 0
                 else:
                     i = i + 1
+            print(self._betting_order)
         else:
             # otherwise, check whether someone has raised
             # and make a new betting order where the person
@@ -404,7 +390,7 @@ class Game():
                             f'{player.user.display_name} called the bet for ${self._call}. The pot is now ${self._pot}.'
                         )
                     self._betting_order.pop(0)
-                    self._generate_betting_order()
+                    await self._generate_betting_order()
                     await self._continue_round()
 
 
