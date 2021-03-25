@@ -1,5 +1,6 @@
 import random
 from card_deck import Deck
+import traceback
 """
 game proceeds in this manner
 command sent
@@ -130,7 +131,7 @@ class Dealer():
         players[big_index].is_big_blind = True
     #endregion game
     #region messaging
-    async def send_betting_alert(self, next_bet, call, who_raised = 'Nobody'):
+    async def send_betting_alert(self, next_bet, call, who_raised):
         check = ''
         if call == 0:
             check = "> n!holdem check\n"
@@ -139,7 +140,7 @@ class Dealer():
             delete_after=60
         )
         await self._channel.send(
-            f"Minimum bet to stay: ${call} ({who_raised} raised)"
+            f"Minimum bet to stay: ${call - next_bet.bet_this_round} ({who_raised} raised)\n" +
             "Your options are:\n" +
             "> n!holdem bet [*a number (no dollar sign)*]\n" + 
             "> n!holdem call\n" +
@@ -167,6 +168,13 @@ class Dealer():
                 delete_after=45
             )
 
+    async def send_call_message(self, player, call, num, pot):
+        await self._channel.send(
+            f'{player.user.display_name} called the ${call} bet with ${num}.\n' +
+            f"The pot is now ${pot}. ${player.bet_this_round} of that is {player.user.display_name}'s money.\n" +
+            f"*{player.user.display_name} has ${player.money} left.*"
+        )
+
     async def send_card_reveal_messages(self):
         pass
 
@@ -175,12 +183,26 @@ class Dealer():
             f"Current pot is ${pot}.",
             delete_after=120
         )
+
+    async def send_money_message(self, player):
+        await self._channel.send(
+            f"{player.user.mention}, you have {player.money}.",
+            delete_after=45
+        )
+
+    async def send_raise_message(self, player, call, num, pot):
+        await self._channel.send(
+            f"{player.user.display_name} raised the bet to ${call} with ${num}.\n" +
+            f"The pot is now ${pot}. ${player.bet_this_round} of that is {player.user.display_name}'s money.\n" +
+            f"{player.user.display_name} has ${player.money} left."
+        )
     #endregion messaging
 
 class Player():
     def __init__(self, user):
         self.user = user
         self.money = 0
+        self.bet_this_round = 0
         self.hand = []
         self.is_small_blind = False 
         self.is_big_blind = False
@@ -203,7 +225,7 @@ class Game():
         self._last_call = 0
         self._call = 0
         self._pot = 0
-
+        self._raise_player = 'Nobody'
         
         self._community_cards = []
         # shuffle players and assign blinds
@@ -211,7 +233,7 @@ class Game():
 
     def _find_player(self, name):
         for player in self._players:
-            if player.user.display_name == name:
+            if player.user.display_name.lower() == name.lower():
                 return player
         return False
 
@@ -232,10 +254,17 @@ class Game():
 
         # generate betting order
         await self._generate_betting_order(next_round=True)
+        self._call = self.small_blind
         # advance to dealing phase
         print('Starting game.')
         self.state = 'deal'
         await self._continue_round()
+
+    def _new_round_cleanup(self):
+        self._last_call = 0
+        self._call = 0
+        self._raise_player = 'Nobody'
+
 
     async def _continue_round(self): # decides whether to continue cycling through bets or to change phases
         # this is called at the beginning of the game and after each bet and deal
@@ -249,6 +278,7 @@ class Game():
                 self.state = 'river'
             elif self.state == 'river':
                 self.state = 'deal'
+                self._new_round_cleanup()
                 await self._generate_betting_order(next_round=True)
                 self.dealer.move_blinds(self._players)   
 
@@ -261,12 +291,15 @@ class Game():
             # players, state, round_number, community_cards = []
             await self.dealer.deal_this_phase(self._players, self.state, self._round_number, self._community_cards)
             await self._continue_round()
+            return
 
-        print(len(self._betting_order))
         if len(self._betting_order) == 0:
             await _send_to_next_phase(self)
         else:
-            await self.dealer.send_betting_alert(self._betting_order[0], self._call)          
+            if self._betting_order[0].is_big_blind and self._call <= self.big_blind:
+                self._call = self.big_blind
+
+            await self.dealer.send_betting_alert(self._betting_order[0], self._call, self._raise_player)          
 
     async def _generate_betting_order(self, next_round = False): # generates a betting order based on whether it's the next_round
         print('Generating betting order.')
@@ -305,7 +338,6 @@ class Game():
             # and make a new betting order where the person
             # before them at the table is last
             if self._call > self._last_call:
-                self._last_call = self._call
                 player_index = self._players.index(self._call_player)
                 if player_index == (len(self._players) - 1):
                     i = 0
@@ -361,8 +393,8 @@ class Game():
         for player in self._players:
             player.money = num
 
-        self.small_blind = num / 100
-        self.big_blind = num / 50
+        self.small_blind = int(num / 100)
+        self.big_blind = int(num / 50)
 
         await self._start_game()
 
@@ -372,24 +404,26 @@ class Game():
     #region player commands
     async def bet(self, num, name):
         player = self._find_player(name)
+
         if player:
-            if player == self._betting_order[0]:
-                if num < player.money and num >= self._call and num > 0:
+            if self._betting_order.index(player) == 0:
+
+                if num <= player.money and num >= (self._call - player.bet_this_round) and num > 0:
+    
                     self._pot = self._pot + num 
                     player.money = player.money - num
-                    if num > self._call:
-                        self._call_player = player
-                        self._last_call = self._call
-                        self._call = num
-                        # change betting order here
-                        await self._channel.send(
-                            f'{player.user.display_name} raised the bet to ${self._call}. The pot is now ${self._pot}.'
-                        )
-                    else:
-                        await self._channel.send(
-                            f'{player.user.display_name} called the bet for ${self._call}. The pot is now ${self._pot}.'
-                        )
+                    player.bet_this_round = player.bet_this_round + num
+
+                    if num > (self._call - player.bet_this_round): # if they raise
+                        await self.dealer.send_raise_message(player, self._call, num, self._pot)    
+                    else: # if they call
+                        await self.dealer.send_call_message(player, self._call, num, self._pot)
+                   
+                    self._last_call = self._call
+                    self._call = num + player.bet_this_round
+                    self._call_player = player
                     self._betting_order.pop(0)
+
                     await self._generate_betting_order()
                     await self._continue_round()
 
@@ -428,6 +462,10 @@ class Game():
     
     # def leave_table(self, name):
     #     pass
+    async def money(self, name):
+        player = self._find_player(name)
+        if player:
+            await self.dealer.send_money_message(player)
     #endregion player commands
     #region debug commands
     async def deck(self):

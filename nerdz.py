@@ -47,7 +47,7 @@ class Nerdz():
         if msg.content.lower().startswith('n!'): await msg.delete()
         #endregion auto_message_cleaning
         #region holdem_setup_prompts
-        if self.hold_em and self.hold_em._channel == msg.channel:
+        if self.hold_em != False and self.hold_em._channel == msg.channel:
             if self.hold_em.state == 'waiting for player list':
                 names = msg.content.lower().split(' ')
                 users = []
@@ -200,28 +200,30 @@ class Nerdz():
                         self.hold_em = False
                     #endregion game commands
                     #region player commands
-                    elif command == 'check' and self.hold_em:
+                    elif command == 'check' and self.hold_em != False:
                         await self.hold_em.check(msg.author.display_name)
-                    elif command == 'bet' and self.hold_em:
-                        try:
-                            num = int(command_strings[0])
-                            await self.hold_em.bet(num, msg.author.display_name)
-                        except:
-                            await msg.channel.send(
-                                '(Type n!holdem bet [*a number here*].)',
-                                delete_after=30
-                            )
-                    elif command == 'call' and self.hold_em:
+                    elif command == 'bet' and self.hold_em != False:
+                        # try:
+                        num = int(command_strings[0].strip())
+                        await self.hold_em.bet(num, msg.author.display_name)
+                        # except:
+                        #     await msg.channel.send(
+                        #         '(Type n!holdem bet [*a number here*].)',
+                        #         delete_after=30
+                        #     )
+                    elif command == 'call' and self.hold_em != False:
                         await self.hold_em.call(msg.author.display_name)
-                    elif command == 'fold' and self.hold_em:
+                    elif command == 'fold' and self.hold_em != False:
                         await self.hold_em.fold(msg.author)
-                    elif command == 'reveal' and self.hold_em:
+                    elif command == 'reveal' and self.hold_em != False:
                         pass
-                    elif command == 'muck' and self.hold_em:
+                    elif command == 'muck' and self.hold_em != False:
                         pass
+                    elif command == 'money' and self.hold_em != False:
+                        await self.hold_em.money(msg.author.display_name)
                     #endregion player commands
                     #region debug
-                    elif command == 'deck' and self.hold_em:
+                    elif command == 'deck' and self.hold_em != False:
                         await self.hold_em.deck()
                     #endregion debug
                     else:
